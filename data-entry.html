@@ -87,6 +87,12 @@
     .forecast-box { border: 1px solid var(--line); border-radius: 16px; padding: 16px; background: #fbfcff; }
     .slider-row { display: grid; grid-template-columns: 1fr 90px; gap: 10px; align-items: center; margin-top: 10px; }
     .mini-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+
+    .parameter-subgrid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:12px; margin-top:14px; }
+    .parameter-box { border: 1px solid var(--line); border-radius: 14px; padding: 14px; background:#fbfcff; }
+    .parameter-box h3 { margin:0 0 10px; font-size:15px; }
+    @media (max-width: 900px) { .parameter-subgrid { grid-template-columns: 1fr; } }
+
     .footer { color: var(--muted); font-size: 13px; text-align: center; margin: 24px 0 8px; }
     @media (max-width: 1100px) { .grid.two, .kpis, .editor-shell, .editor-grid, .mini-grid { grid-template-columns: 1fr; } .bar-row { grid-template-columns: 1fr; } }
   
@@ -280,7 +286,7 @@
           <h2 style="margin:0 0 6px;">Parameters</h2>
           <div class="muted" id="paramScopeLabel">Edit default settings for all schools or set custom rules for one school only.</div>
         </div>
-        <span class="pill">Editable rules</span>
+        <span class="pill">Customizable Rules</span>
       </div>
       <div class="parameter-toolbar">
         <label for="parameterSchoolSelect"><strong>Apply to:</strong></label>
@@ -300,6 +306,22 @@
           </thead>
           <tbody id="paramBody"></tbody>
         </table>
+      </div>
+      <div class="parameter-subgrid">
+        <div class="parameter-box">
+          <h3>General Room Furniture</h3>
+          <div class="editor-grid" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
+            <div class="field">
+              <label for="teacherTablesPerRoom">Teacher Tables per Room</label>
+              <input id="teacherTablesPerRoom" min="0" step="1" type="number"/>
+            </div>
+            <div class="field">
+              <label for="teacherChairsPerRoom">Teacher Chairs per Room</label>
+              <input id="teacherChairsPerRoom" min="0" step="1" type="number"/>
+            </div>
+          </div>
+          <div class="muted" style="margin-top:8px;">These can stay at 1 per room by default, but you can customize them when needed.</div>
+        </div>
       </div>
     </section>
 
@@ -335,10 +357,14 @@
         { level: 'G4-6', roomLength: 7, roomWidth: 9, chairsPerRoom: 45, notes: 'Standard room preset' },
         { level: 'JHS', roomLength: 7, roomWidth: 9, chairsPerRoom: 45, notes: 'Standard room preset' },
         { level: 'SHS', roomLength: 7, roomWidth: 9, chairsPerRoom: 45, notes: 'Standard room preset' }
-      ]
+      ],
+      teacherTablesPerRoom: 1,
+      teacherChairsPerRoom: 1
     };
 
     function cloneLevels(levels) { return levels.map(item => ({ ...item })); }
+    function cloneParameterSet(set) { return { levels: cloneLevels(set.levels), teacherTablesPerRoom: Number(set.teacherTablesPerRoom ?? 1), teacherChairsPerRoom: Number(set.teacherChairsPerRoom ?? 1) }; }
+    function getParameterSetForSchool(school) { return school?.customParameters || state.parameters; }
     function createSeedSchool(row) {
       return {
         ...row,
@@ -386,7 +412,11 @@
         try {
           const parsed = JSON.parse(saved);
           state.schools = (parsed.schools || rawSeedSchools.map(createSeedSchool));
-          state.parameters = parsed.parameters || structuredClone(defaultParameters);
+          state.parameters = { ...structuredClone(defaultParameters), ...(parsed.parameters || {}) };
+          state.parameters.levels = parsed.parameters?.levels || structuredClone(defaultParameters.levels);
+          state.parameters.teacherTablesPerRoom = Number(parsed.parameters?.teacherTablesPerRoom ?? 1);
+          state.parameters.teacherChairsPerRoom = Number(parsed.parameters?.teacherChairsPerRoom ?? 1);
+          (parsed.schools || []).forEach(s => { if (s.customParameters) { s.customParameters = { ...cloneParameterSet(state.parameters), ...s.customParameters, levels: s.customParameters.levels || cloneLevels(state.parameters.levels), teacherTablesPerRoom: Number(s.customParameters.teacherTablesPerRoom ?? 1), teacherChairsPerRoom: Number(s.customParameters.teacherChairsPerRoom ?? 1) }; } });
           state.parameterTarget = parsed.parameterTarget || '__default__';
           state.selectedSchoolIndex = Math.max(0, Math.min(parsed.selectedSchoolIndex || 0, state.schools.length - 1));
           return;
@@ -551,8 +581,9 @@
 
     function renderParameters() {
       const school = state.parameterTarget === '__default__' ? null : state.schools.find(item => item.schoolId === state.parameterTarget);
-      const levels = school?.customParameters?.levels || state.parameters.levels;
-      els.paramScopeLabel.textContent = school ? `Editing custom rules for ${school.schoolName}.` : 'Editing default rules for all schools.';
+      const activeSet = getParameterSetForSchool(school);
+      const levels = activeSet.levels;
+      els.paramScopeLabel.textContent = school ? `Customizing rules for ${school.schoolName}.` : 'Customizing default rules for all schools.';
       els.parameterSchoolSelect.innerHTML = `<option value="__default__">Default settings for all schools</option>` + state.schools.map(item => `<option value="${escapeHtml(item.schoolId)}" ${state.parameterTarget === item.schoolId ? 'selected' : ''}>${escapeHtml(item.schoolName)}</option>`).join('');
       els.paramBody.innerHTML = levels.map((row,index) => `
         <tr>
@@ -562,6 +593,8 @@
           <td><input type="number" min="0" step="1" data-param-index="${index}" data-param-field="chairsPerRoom" value="${row.chairsPerRoom}"></td>
           <td><input type="text" data-param-index="${index}" data-param-field="notes" value="${escapeHtml(row.notes)}"></td>
         </tr>`).join('');
+      document.getElementById('teacherTablesPerRoom').value = Number(activeSet.teacherTablesPerRoom ?? 1);
+      document.getElementById('teacherChairsPerRoom').value = Number(activeSet.teacherChairsPerRoom ?? 1);
     }
 
     function renderForecast(computed) {
@@ -643,9 +676,9 @@
     function resetBrowserData() { if (!confirm('This will remove your saved browser data and go back to the seed list. Continue?')) return; localStorage.removeItem(STORAGE_KEY); loadState(); renderAll(); els.saveStatus.textContent = 'Reset complete'; }
     function exportCSV() {
       const computed = getComputedSchools();
-      const columns = ['schoolId','schoolName','kinderRooms','g13Rooms','g46Rooms','jhsRooms','shsRooms','primaryMorningStudents','primaryAfternoonStudents','secondaryMorningStudents','secondaryAfternoonStudents','existingPrimaryChairs','existingSecondaryChairs','plannedPrimaryChairs','plannedSecondaryChairs','primaryCapacity','secondaryCapacity','requiredPrimaryChairs','requiredSecondaryChairs','remainingPrimaryGap','remainingSecondaryGap','totalRemainingGap','priority'];
+      const columns = ['teacherTablesPerRoom','teacherChairsPerRoom','schoolId','schoolName','kinderRooms','g13Rooms','g46Rooms','jhsRooms','shsRooms','primaryMorningStudents','primaryAfternoonStudents','secondaryMorningStudents','secondaryAfternoonStudents','existingPrimaryChairs','existingSecondaryChairs','plannedPrimaryChairs','plannedSecondaryChairs','primaryCapacity','secondaryCapacity','requiredPrimaryChairs','requiredSecondaryChairs','remainingPrimaryGap','remainingSecondaryGap','totalRemainingGap','priority'];
       const lines = [columns.join(',')];
-      computed.forEach(row => lines.push(columns.map(col => csvEscape(row[col])).join(',')));
+      computed.forEach(row => { const set = getParameterSetForSchool(row); const enriched = { ...row, teacherTablesPerRoom: Number(set.teacherTablesPerRoom ?? 1), teacherChairsPerRoom: Number(set.teacherChairsPerRoom ?? 1) }; lines.push(columns.map(col => csvEscape(enriched[col])).join(',')); });
       const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = 'legazpi_school_chair_data_v4.csv'; link.click(); URL.revokeObjectURL(url);
     }
@@ -671,7 +704,15 @@
         const row = levels[Number(target.dataset.paramIndex)];
         row[target.dataset.paramField] = target.dataset.paramField === 'notes' ? target.value : Number(target.value);
         if (school && !school.customParameters) school.customParameters = { levels };
-        saveState('Parameters updated');
+        saveState('Customizable rules updated');
+        renderAll();
+        return;
+      }
+      if (target.id === 'teacherTablesPerRoom' || target.id === 'teacherChairsPerRoom') {
+        const school = state.parameterTarget === '__default__' ? null : state.schools.find(item => item.schoolId === state.parameterTarget);
+        const activeSet = school ? (school.customParameters || (school.customParameters = cloneParameterSet(state.parameters))) : state.parameters;
+        activeSet[target.id] = Number(target.value || 0);
+        saveState('Customizable rules updated');
         renderAll();
         return;
       }
@@ -680,10 +721,10 @@
     });
 
     els.searchInput.addEventListener('input', renderSchoolList);
-    els.parameterSchoolSelect.addEventListener('change', (event) => { state.parameterTarget = event.target.value; saveState('Parameter scope updated'); renderParameters(); });
+    els.parameterSchoolSelect.addEventListener('change', (event) => { state.parameterTarget = event.target.value; saveState('Rule scope updated'); renderParameters(); });
     document.getElementById('resetSchoolParamsBtn').addEventListener('click', () => {
-      if (state.parameterTarget === '__default__') { state.parameters = structuredClone(defaultParameters); saveState('Default parameters reset'); renderAll(); return; }
-      const school = state.schools.find(item => item.schoolId === state.parameterTarget); if (!school) return; school.customParameters = null; saveState('School rules reset'); renderAll();
+      if (state.parameterTarget === '__default__') { state.parameters = structuredClone(defaultParameters); saveState('Default customizable rules reset'); renderAll(); return; }
+      const school = state.schools.find(item => item.schoolId === state.parameterTarget); if (!school) return; school.customParameters = null; saveState('School customizable rules reset'); renderAll();
     });
     document.getElementById('demoBtn').addEventListener('click', loadDemoInputs);
     document.getElementById('addBtn').addEventListener('click', addSchool);
